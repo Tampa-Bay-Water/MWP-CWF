@@ -1,0 +1,28 @@
+$ git status
+
+# Untracked files:
+Output/rrv_*/ampl_*.*
+Output/rrv_*/infeas_*.*
+FlowSystemSchematic*/**
+OMSBridge/**
+Output_*/**
+old_BEOPEST/**
+Task3/task3_3_saved.mat
+*.stat
+*.asv
+# *.csv
+*.dll
+*.log
+*.bak
+*.zip
+*.png
+
+# Exceptions
+!*.m
+!*.ps1
+!*.amp
+!*.vb
+!Output/rrv_*/*.amp
+
+# others
+HW_Working_folder/**

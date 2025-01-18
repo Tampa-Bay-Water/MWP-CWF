@@ -1,0 +1,76 @@
+function t_stats=plotwl_histogram(d_figs,t_minwl,t_watlev,RA_region,save2pdf,layname)
+layname = upper(layname);
+if strcmp(layname,'UFAS')
+    t_watlev = renamevars(t_watlev,{'DailyWaterlevel'},{'Value'});
+end
+nwells = height(t_minwl);
+t_stats = array2table(NaN(nwells,16),...
+    'VariableNames',...
+    {'WellName',...
+    'Data_POR_mu','Data_POR_sig','Data_POR_N',...
+    'RA_POR_mu','RA_POR_sig','RA_POR_N',...
+    'RA_first6yrs_mu','RA_first6yrs_sig','RA_first6yrs_N',...
+    'RA_last6yrs_mu','RA_last6yrs_sig','RA_last6yrs_N',...
+    'RA_extended_mu','RA_extended_sig','RA_extended_N'});
+t_stats.WellName = t_minwl.PointName;
+varname = t_stats.Properties.VariableNames(2:end);
+
+p_subtitle = {...
+    'All Data Pull Period (WY 2000-2023)',...
+    'Recovery Assessment Period (WY 2008-2019)',...
+    'First 6-year of Recovery Assessment Period (WY 2008-2013)',...
+    'Last 6-year of Recovery Assessment Period (WY 2014-2019)',...
+    'The Extended Recovery Assessment Period (WY 2019-2023)'};
+
+% Plot Histogram
+i_period = NaN(height(t_watlev),length(p_subtitle));
+i_period(:,1) = ones([height(t_watlev),1],"logical");
+i_period(:,2) = t_watlev.TSTAMP>=RA_region(1,1) ...
+    & t_watlev.TSTAMP<RA_region(3,1);
+i_period(:,3) = t_watlev.TSTAMP<RA_region(2,1) ...
+    & i_period(:,2);
+i_period(:,4) = t_watlev.TSTAMP>=RA_region(2,1) ...
+    & i_period(:,2);
+i_period(:,5) = t_watlev.TSTAMP>=RA_region(3,1);
+
+fname = {[layname 'wldist_all_%02d'],[layname 'wldist_ra_%02d'],...
+    [layname 'wldist_ra1_%02d'],[layname 'wldist_ra2_%02d'],...
+    [layname 'wldist_ra3_%02d']};
+
+for k=1:length(p_subtitle)
+    for i=1:nwells
+        if mod((i-1),6)==0
+            [~,a] = create3x2Axes_row({...
+                ['Distribution of Daily ' layname ' Waterlevels'],...
+                char(p_subtitle{k}) ...
+                });
+        end
+        
+        j = mod((i-1),6)+1;
+        subplot(a(1,j));
+        gca.FontSize = 5;
+        wname = t_minwl.PointName{i};
+        wl_data = t_watlev.Value(strcmp(t_watlev.PointName,wname) ...
+            & i_period(:,k));
+        k0 = (k-1)*3;
+        t_stats.(varname{k0+3})(i) = sum(arrayfun(@(y) ~isnan(y),wl_data));
+        if t_stats.(varname{k0+3})(i)>0
+            histfit(wl_data);
+            pd = fitdist(wl_data,'normal');
+            t_stats.(varname{k0+1})(i) = pd.mu;
+            t_stats.(varname{k0+2})(i) = pd.sigma;
+        end
+        grid on;
+        xlabel('Waterlevel, ft NGVD');
+        title(sprintf('%s: (\\mu=%.1f, \\sigma=%.2f, N=%d)',...
+            wname,t_stats.(varname{k0+1})(i),t_stats.(varname{k0+2})(i),...
+            t_stats.(varname{k0+3})(i)));
+        if i==nwells && j<6
+            set(a(1,(j+1):6),'XColor',[1 1 1],'YColor',[1 1 1]);
+            % delete(a(1,(j+1):6))
+        end
+        if j==6 || i==nwells
+            export2fig(d_figs,sprintf(char(fname{k}),int32(i/6)),save2pdf);
+        end
+    end
+end
