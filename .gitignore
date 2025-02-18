@@ -8,6 +8,8 @@ OMSBridge/**
 Output_*/**
 old_BEOPEST/**
 Task3/task3_3_saved.mat
+Task3/task3_3_pdf
+Task3/task3_3_plots
 *.stat
 *.asv
 # *.csv

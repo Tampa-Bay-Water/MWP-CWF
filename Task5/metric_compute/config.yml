@@ -1,0 +1,93 @@
+general:
+  MAX_NUM_PROCESSES: 10
+  INTB_VERSION: 2
+  ZERO_FLOW: 1.
+  NEED_WEEKLY: true
+
+scenario:
+  SCENARIO_NAME: Baseline
+  REALS_DIRNAME: INTB2_Output_realization
+  REALIZATIONS: range(1,11)
+  SPRINGFLOW_IDS: [2,3]
+  STREAMFLOW_IDS: []
+  SUCCESSIVE_FAILS: 4
+
+plotting:
+  FIG_TITLE_FONTSIZE: 12
+  TITLE_FONTSIZE: 10
+  AX_LABEL_FONTSIZE: 8
+
+INTB1:
+  # Period of Analysis INTB1
+  POA_SDATE: '1989-01-01'
+  POA_EDATE: '2006-12-31'
+  SIMULATION_SDATE: '1989-01-01'
+
+INTB2:
+  # Period of Analysis INTB2
+  POA_SDATE: '1997-01-01'
+  POA_EDATE: '2006-12-31'
+  SIMULATION_SDATE: '1989-01-01'
+
+OROP_ACTIVEWELL:
+  - BUD-14fl
+  - BUD-21fl
+  - A-1s
+  - SERW-s
+  - SRW-s
+  - WRW-s
+  - Cosme-20s
+  - James-10s
+  - KystnPk36
+  - CWD-Elem-SAS
+  - WT-2-500
+  - WT-9-500
+  - WT-5-200
+  - CYB-WT-5-1950
+  - CC-TB-22A
+  - TMR-1As
+  - CYC-W56B
+  - CYC-821-Synth
+  - EW-11s
+  - EW-SM-15
+  - EW-SM-28
+  - MB-23s
+  - MB-24s
+  - MB-4s
+  - MB-537s
+  - SGW-1
+  - MB-25s
+  - RMP-13s
+  - RMP-8s
+  - Hills-13s
+  - Jacksn26As
+  - LutzPk-40s
+  - HarryMatts
+  - North-s
+  - StPt-47s
+  - EMW-16s
+  - EMW-8s
+  - STK-20s
+  - STK-SM2s
+
+ScreenTextColor:
+  RESET       : '\033[0m'   # Reset all styles
+  BOLD        : '\033[1m'   # Bold
+  UNDERLINE   : '\033[4m'   # Underline
+  INVERT      : '\033[7m'   # Invert
+  BLACK_FG    : '\033[30m'  # Black text
+  RED_FG      : '\033[31m'  # Red text
+  GREEN_FG    : '\033[32m'  # Green text
+  YELLOW_FG   : '\033[33m'  # Yellow text
+  BLUE_FG     : '\033[34m'  # Blue text
+  MAGENTA_FG  : '\033[35m'  # Magenta text
+  CYAN_FG     : '\033[36m'  # Cyan text
+  WHITE_FG    : '\033[37m'  # White text
+  BLACK_BG    : '\033[40m'  # Black background
+  RED_BG      : '\033[41m'  # Red background
+  GREEN_BG    : '\033[42m'  # Green background
+  YELLOW_BG   : '\033[43m'  # Yellow background
+  BLUE_BG     : '\033[44m'  # Blue background
+  MAGENTA_BG  : '\033[45m'  # Magenta background
+  CYAN_BG     : '\033[46m'  # Cyan background
+  WHITE_BG    : '\033[47m'  # White background
