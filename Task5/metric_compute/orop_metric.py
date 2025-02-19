@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import sqlalchemy as sa
 import multiprocessing as mp
 from datetime import datetime
 import yaml
@@ -35,7 +34,7 @@ MAX_NUM_PROCESSES = CONFIG['general']['MAX_NUM_PROCESSES']
 INTB_VERSION = CONFIG['general']['INTB_VERSION']
 NEED_WEEKLY = CONFIG['general']['NEED_WEEKLY']
 
-SCENARIO_NAME = CONFIG['scenario']['SCENARIO_NAME']
+RUNID = CONFIG['scenario']['RUNID']
 REALIZATIONS = eval(CONFIG['scenario']['REALIZATIONS'])
 INTB_DATA_DIRNAME = CONFIG['scenario']['REALS_DIRNAME']
 SUCCESSIVE_FAILS = CONFIG['scenario']['SUCCESSIVE_FAILS']
@@ -56,19 +55,23 @@ else:
     SIMULATION_SDATE = CONFIG['INTB2']['SIMULATION_SDATE']
 
 # Screen Text Color
-HEADER = '\033[95m'
-OKBLUE = '\033[94m'
-OKCYAN = '\033[96m'
-OKGREEN = '\033[92m'
-WARNING = '\033[93m'
-FAIL = '\033[91m'
-ENDC = '\033[0m'
-BOLD = '\033[1m'
-UNDERLINE = '\033[4m'
+STC = ScreenTextColor
+HEADER = STC.BK_FG+STC.BOLD
+OKBLUE = STC.B_FG
+OKCYAN = STC.C_FG
+OKGREEN = STC.G_FG
+OKYELLOW = STC.Y_FG
+WARNING = STC.M_FG
+FAIL = STC.R_FG
+ENDC = STC.RESET
+BOLD = STC.BOLD
+UNDERLINE = STC.ULINE
 
 
-def one_site_plot(df, name):
+def one_site_plot(df, real_id, name, datatype):
     fig, axes = plt.subplots(2, 1, figsize=(9.75, 13.5))
+    fig.suptitle(f'RunID: {RUNID:04} RealizationID{real_id:04}'
+        , fontsize=FIG_TITLE_FONTSIZE, fontweight='bold')
     g = sns.lineplot(ax=axes[0], x='Date', y='Waterlevel', data=df[0], hue='WL Stats',
         style='WL Stats', dashes=[(1,0),(1,0),(3,1)], palette='tab10')
     # g.lines[2].set_linestyle('--')
@@ -81,8 +84,7 @@ def one_site_plot(df, name):
     axes[0].set_ylabel('Waterlevel, ft NGVD', c='blue')
     ax2.set_ylabel('Severity, ft', c='red')
     ax2.grid(False)
-    # axes[0].set_title(f'{df[0].columns[2]}: {name}')
-    fig.suptitle(f'{df[0].columns[2]}: {name}', fontsize=FIG_TITLE_FONTSIZE, fontweight='bold')
+    axes[0].set_title(f'{df[0].columns[2]}: {name} ({datatype})', fontsize=TITLE_FONTSIZE)
     ylim = axes[0].get_ylim()
     ax2.set_ylim([0,(ylim[1]-ylim[0])*4])
     lines, labels = axes[0].get_legend_handles_labels()
@@ -143,7 +145,9 @@ def one_site_metric(df, statfns=['none','mean','median'], interval=[5,10], mfl=-
                     df = computeMetric(df,prefix)
 
     # Windowing the result to POA
-    df = df[df['Date']>='1997-01-01']
+    date = np.logical_and(
+        np.array(df['Date']>=POA[0]),np.array(df['Date']<=POA[1]))
+    df = df[date]
 
     index_names = {
         'count': 'Total', 
@@ -156,7 +160,8 @@ def one_site_metric(df, statfns=['none','mean','median'], interval=[5,10], mfl=-
         '50%': 'Median', 
         '75%': 'Q3',
         'max': 'Maximum'}
-    summary = df.describe([.05, .1, .25, .5, .75]).rename(index=index_names)
+    tempDF = df.drop(['PointID','Target','TargetType'], axis=1)
+    summary = tempDF.describe([.05, .1, .25, .5, .75]).rename(index=index_names)
     return df,summary
 
 def push2db(metricsDF, summaryDF, real_id, id, value_vars1, value_vars2,
@@ -167,12 +172,13 @@ def push2db(metricsDF, summaryDF, real_id, id, value_vars1, value_vars2,
     with conn.cursor() as cur:
         cur.execute(f'''
             DELETE FROM dbo.Metric_TS  
-            WHERE DataType='{datatype}' AND LocID={id} AND RealizationID = {real_id};
+            WHERE DataType='{datatype}' AND LocID={id} AND RealizationID = {real_id} AND RunID = RUNID;
             DELETE FROM dbo.Metric  
-            WHERE DataType='{datatype}' AND LocID={id} AND RealizationID = {real_id};
+            WHERE DataType='{datatype}' AND LocID={id} AND RealizationID = {real_id} AND RunID = RUNID;
         ''')
     tempDF = pd.melt(metricsDF, id_vars='Date', var_name='metric',
         value_vars=value_vars1)
+    tempDF['RunID'] = RUNID
     tempDF['RealizationID'] = real_id
     tempDF['DataType'] = datatype
     tempDF['LocID'] = id
@@ -180,6 +186,7 @@ def push2db(metricsDF, summaryDF, real_id, id, value_vars1, value_vars2,
 
     tempDF = pd.melt(summaryDF.reset_index(), id_vars='index', var_name='metric',
         value_vars=value_vars2).rename(columns={'index':'Stats'})
+    tempDF['RunID'] = RUNID
     tempDF['RealizationID'] = real_id
     tempDF['DataType'] = datatype
     tempDF['LocID'] = id
@@ -189,7 +196,7 @@ def push2db(metricsDF, summaryDF, real_id, id, value_vars1, value_vars2,
     return tempDF
 
 def one_site(real_id, id, tempDF, rh):
-    name = rh.owinfo[rh.owinfo['PointID']==id].PointName.values[0] # use modofied owinfo
+    name = rh.owinfo[rh.owinfo['PointID']==id].PointName.values[0] # use modified owinfo
     # print(f'Push result to database for Well: {name} - Realization: {real_id}')
     idDF = tempDF[tempDF['PointID']==id]
     mfl = idDF.Target.values[0]
@@ -212,40 +219,49 @@ def one_site(real_id, id, tempDF, rh):
     # prepare dataframe for plotting
     plotWarehouse = os.path.join(D_PROJECT,'plotWarehouse')
 
-    # # plot using median
-    # df1 = pd.melt(metricsDF[['Date','Value','med08_Value','Target']].rename(
-    #     columns={'Value':'Weekly Waterlevel', 'med08_Value':'8Yr-MovingMed'}),
-    #     id_vars='Date', var_name='WL Stats',
-    #     value_vars=['Weekly Waterlevel','8Yr-MovingMed','Target'], value_name='Waterlevel')
-    # df2 = metricsDF[['Date','med08_severity']].rename(columns={'med08_severity':'Severity'})
-    # df3 = metricsDF[['med08_severity_avg','med08_severity_max']].rename(
-    #     columns={'med08_severity_avg':'Avg Severity','med08_severity_max':'Max Severity'})
-    # fig = one_site_plot([df1,df2,df3], name)
+    # plot using median
+    df1 = pd.melt(metricsDF[['Date','Value','med08_Value','Target']].rename(
+        columns={'Value':'Weekly Waterlevel', 'med08_Value':'8Yr-MovingMed'}),
+        id_vars='Date', var_name='WL Stats',
+        value_vars=['Weekly Waterlevel','8Yr-MovingMed','Target'], value_name='Waterlevel')
+    df2 = metricsDF[['Date','med08_severity']].rename(columns={'med08_severity':'Severity'})
+    df3 = metricsDF[['med08_severity_avg','med08_severity_max']].rename(
+        columns={'med08_severity_avg':'Avg Severity','med08_severity_max':'Max Severity'})
+    fig1 = one_site_plot([df1,df2,df3], real_id, name, idDF.TargetType.values[0])
 
-    # svfilePath = os.path.join(plotWarehouse,f'severity_{real_id:04}-8yrMed:{name}')
-    # # fig.savefig(svfilePath, dpi=300, pad_inches=0.1, facecolor='auto', edgecolor='auto')
-    # fig.savefig(svfilePath+'.pdf', orientation="portrait"
-    #     , dpi=300, bbox_inches="tight", pad_inches=1, facecolor='auto', edgecolor='auto')
+    svfilePath = os.path.join(plotWarehouse,f'severity_{real_id:04}-8yrMed:{name}')
+    # fig1.savefig(svfilePath, dpi=300, pad_inches=0.1, facecolor='auto', edgecolor='auto')
+    fig1.savefig(svfilePath+'.pdf', orientation="portrait"
+        , dpi=300, bbox_inches="tight", pad_inches=1, facecolor='auto', edgecolor='auto')
+    if IS_DEBUGGING:
+        # plt.show(block=True)
+        plt.show(block=False)
+    else:
+        plt.show(block=False)
+    fig1.clf()
+    plt.close('all')
 
-    # # plot using mean
-    # df1 = pd.melt(metricsDF[['Date','Value','avg08_Value','Target']].rename(
-    #     columns={'Value':'Weekly Waterlevel', 'avg08_Value':'8Yr-MovingAvg'}),
-    #     id_vars='Date', var_name='WL Stats',
-    #     value_vars=['Weekly Waterlevel','8Yr-MovingAvg','Target'], value_name='Waterlevel')
-    # df2 = metricsDF[['Date','avg08_severity']].rename(columns={'avg08_severity':'Severity'})
-    # df3 = metricsDF[['avg08_severity_avg','avg08_severity_max']].rename(
-    #     columns={'avg08_severity_avg':'Avg Severity','avg08_severity_max':'Max Severity'})
-    # fig = one_site_plot([df1,df2,df3], name)
+    # plot using mean
+    df1 = pd.melt(metricsDF[['Date','Value','avg08_Value','Target']].rename(
+        columns={'Value':'Weekly Waterlevel', 'avg08_Value':'8Yr-MovingAvg'}),
+        id_vars='Date', var_name='WL Stats',
+        value_vars=['Weekly Waterlevel','8Yr-MovingAvg','Target'], value_name='Waterlevel')
+    df2 = metricsDF[['Date','avg08_severity']].rename(columns={'avg08_severity':'Severity'})
+    df3 = metricsDF[['avg08_severity_avg','avg08_severity_max']].rename(
+        columns={'avg08_severity_avg':'Avg Severity','avg08_severity_max':'Max Severity'})
+    fig2 = one_site_plot([df1,df2,df3], real_id, name, idDF.TargetType.values[0])
 
-    # svfilePath = os.path.join(plotWarehouse,f'severity_{real_id:04}-8yrAvg:{name}')
-    # # fig.savefig(svfilePath, dpi=300, pad_inches=0.1, facecolor='auto', edgecolor='auto')
-    # fig.savefig(svfilePath+'.pdf', orientation="portrait"
-    #     , dpi=300, bbox_inches="tight", pad_inches=1, facecolor='auto', edgecolor='auto')
-    
-    # if IS_DEBUGGING:
-    #     # plt.show()
-    #     pass
-    # plt.close()
+    svfilePath = os.path.join(plotWarehouse,f'severity_{real_id:04}-8yrAvg:{name}')
+    # fig2.savefig(svfilePath, dpi=300, pad_inches=0.1, facecolor='auto', edgecolor='auto')
+    fig2.savefig(svfilePath+'.pdf', orientation="portrait"
+        , dpi=300, bbox_inches="tight", pad_inches=1, facecolor='auto', edgecolor='auto')
+    if IS_DEBUGGING:
+        plt.show(block=True)
+        # plt.show(block=False)
+    else:
+        plt.show(block=False)
+    fig2.clf()
+    plt.close('all')
 
     return summaryDF
 
@@ -287,27 +303,73 @@ def one_real_metric(real_id, wnames):
     df = tempDF[cols].rename(columns={'Corrected':'Value'})
 
     # Compute metric median over 8 years
-    tempDF = df[df['TargetType']=='OROP_CP']
-    summaryDF = [one_site(real_id, id, tempDF, rh) for id in tempDF['PointID'].unique()]
+    # tempDF = df[df['TargetType']=='OROP_CP']
+    summaryDF = [one_site(real_id, id, df, rh) for id in df['PointID'].unique()]
     summaryDF = pd.concat(summaryDF, ignore_index=True)
 
     return summaryDF.to_dict()
 
-def get_metric_MP(real_id, wnames, q=None, sema=None):
+def metric_assessment(metric_data):
+    # summarize rtnval of metrics
+    if isinstance(metric_data[0],dict):
+        df = pd.concat([pd.DataFrame(d) for d in rtnval], ignore_index=True)
+    else:
+        # retrieve from database
+        conn = LoadData.get_DBconn()
+        df = pd.read_sql(f'''
+            SELECT RealizationID,DataType,LocID,Metric,Stats,round([Value],3) Value
+            FROM [MWP_CWF_metric].[dbo].[Metric]
+            WHERE RunID={RUNID}
+        ''', conn)
+        conn.close()
+
+    df_temp = df[df['Stats']=='P10']
+    retained_cols = ['Value', 'RealizationID', 'DataType', 'LocID', 'Metric']
+    df_med_pass = df_temp.loc[df_temp['Metric']=='med08_severity',retained_cols]
+    df_med_pass['Value'] = (df_med_pass['Value']<=0.5).values.astype(float)
+    df_med = df_med_pass.groupby(['RealizationID', 'DataType'])['Value'].mean()*100.
+    df_med = pd.DataFrame(df_med)
+    print(f"\n{df_med.rename(columns={'Value':'OROP_Network_pctPass'})}")
+    df_med['Value'] = (df_med['Value']>=50.).values.astype(float)
+    df_med = df_med.groupby(['DataType'])['Value'].mean()*100.
+    df_med = pd.DataFrame(df_med).rename(columns={'Value':'Reliability'})
+    print(f'\n{df_med}')
+    # df_avg_pass = df_temp.loc[df_temp['metric']=='avg08_severity',retained_cols]
+    # df_avg_pass['value'] = (df_avg_pass['value']<=0.5).values.astype(float)
+    # df_avg = df_avg_pass.groupby(['RealizationID', 'DataType'])['value'].mean()*100.
+    # df_avg.reset_index(inplace=True)
+    return
+
+def get_metric_MP1(real_id, wnames, q=None, sema=None):
     pid = os.getpid()
     print(f'{HEADER}Computing metric for realization: {real_id} on pid: {pid}{ENDC}')
+    from time import sleep
+    sleep(1)
+
+    if q is not None:
+        # plt.show(block=False)
+        if q!=-1:
+            print(f"{OKCYAN}Call Queue.Put type {type(real_id)} for process ID: {pid}{ENDC}")
+            q.put(real_id)
+            sema.release()
+
+    if sema is not None:
+        sema.release()
+
+    return
+
+def get_metric_MP(real_id, wnames, q=None, sema=None):
+    pid = os.getpid()
+    print(f'{HEADER}Computing metric for RunID(RealizationID): {RUNID}({real_id}) on pid: {pid}{ENDC}')
     r = one_real_metric(real_id, wnames)
 
     if q is not None:
         # plt.show(block=False)
         if q!=-1:
             pid = os.getpid()
-            print(f"{OKCYAN}Call Queue.Put for process ID: {pid}{ENDC}")
-            q.put(r)
+            print(f"{OKCYAN}Call Queue.Put type {type(r)} for process ID: {pid}{ENDC}")
+            q.put_nowait(real_id)
             sema.release()
-
-    # if sema is not None:
-    #     sema.release()
 
     return
 
@@ -320,6 +382,7 @@ def useMP_Queue(wnames):
     for real_id in REALIZATIONS:
         sema.acquire()
         p = mp.Process(target=get_metric_MP, args=(real_id, wnames, q, sema))
+        # p = mp.Process(target=get_metric_MP1, args=(real_id, wnames, q, sema))
         procs.append(p)
         p.start()
 
@@ -331,9 +394,9 @@ def useMP_Queue(wnames):
     # get return value
     rtnval = []
     for p in procs:
-        tempDict = q.get()
-        print(f"{OKGREEN}Call Queue.Put for process ID: {p.pid}{ENDC}")
-        rtnval.append(tempDict)
+        r = q.get_nowait()
+        print(f"{OKYELLOW}Call Queue.Get type {type(r)} for process ID: {p.pid}{ENDC}")
+        rtnval.append(r)
 
     return rtnval
 
@@ -344,14 +407,14 @@ def useMP_Pool(wnames):
             p = pool.apply_async(get_metric_MP, args=(real_id, wnames))
             print(f"Return type from apply_async is '{type(p)}'.")
             r = p.get(timeout=60)
-            print(f"Return type from get is '{type(r)}'.")
+            print(f"Return type from pool.get is '{type(r)}'.")
             rtnval.append(r)
 
     return rtnval
 
 def use_noMP(wnames):
     rtnval = []
-    for real_id in REALIZATIONS:
+    for real_id in REALIZATIONS[0:1]:
         r = one_real_metric(real_id, wnames)
         rtnval.append(r)
     return rtnval
@@ -362,12 +425,13 @@ if __name__ == '__main__':
     sns.set_theme(style="darkgrid")
     plt.rcParams.update({'font.size': 8, 'savefig.dpi': 300})
     plotWarehouse = os.path.join(D_PROJECT,'plotWarehouse')
+    conn = LoadData.get_DBconn()
 
     # List of Current OROP Wells (2023)
     orop_activewell = ','.join([f"'{s}'" for s in OROP_ACTIVEWELL])
     conn = LoadData.get_DBconn()
     wellDF = pd.read_sql(f'''
-        SELECT PointName, TargetWL Target, 'orop' Permit
+        SELECT PointName, TargetWL Target, 'orop_cp' Permit
         FROM [dbo].[RA_TargetWL]
         WHERE PointName in ({orop_activewell})
         UNION
@@ -411,23 +475,7 @@ if __name__ == '__main__':
     etime = datetime.now()-start_time
     print(f'Elasped time: {etime}')
 
-    # summarize rtnval of metrics
-    df = pd.concat([pd.DataFrame(d) for d in rtnval], ignore_index=True)
-    df_temp = df[df['Stats']=='P10']
-    retained_cols = ['value', 'RealizationID', 'DataType', 'LocID']
-    df_med_pass = df_temp.loc[df_temp['metric']=='med08_severity',retained_cols]
-    df_med_pass['value'] = (df_med_pass['value']<=0.5).values.astype(float)
-    df_med = df_med_pass.groupby(['RealizationID', 'DataType'])['value'].mean()*100.
-    df_med = pd.DataFrame(df_med)
-    print(f"\n{df_med.rename(columns={'value':'OROP_Network_pctPass'})}")
-    df_med['value'] = (df_med['value']>=50.).values.astype(float)
-    df_med = df_med.groupby(['DataType'])['value'].mean()*100.
-    df_med = pd.DataFrame(df_med).rename(columns={'value':'Reliability'})
-    print(f'\n{df_med}')
-    # df_avg_pass = df_temp.loc[df_temp['metric']=='avg08_severity',retained_cols]
-    # df_avg_pass['value'] = (df_avg_pass['value']<=0.5).values.astype(float)
-    # df_avg = df_avg_pass.groupby(['RealizationID', 'DataType'])['value'].mean()*100.
-    # df_avg.reset_index(inplace=True)
+    metric_assessment(rtnval)
 
     # merge pdf files
     if not IS_DEBUGGING:

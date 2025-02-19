@@ -5,7 +5,10 @@ general:
   NEED_WEEKLY: true
 
 scenario:
-  SCENARIO_NAME: Baseline
+  RUNID: -1
+  RUNDESCRIPTION: 'Code testing'
+  SCENARIO_ID: -1
+  SCENARIO_NAME: Historical Data
   REALS_DIRNAME: INTB2_Output_realization
   REALIZATIONS: range(1,11)
   SPRINGFLOW_IDS: [2,3]
