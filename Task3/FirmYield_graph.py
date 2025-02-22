@@ -48,7 +48,7 @@ def plot_wf_pumpage_ts(df,int_stats):
     svfilePath = os.path.join(D_PROJECT,'plotWarehouse',f'{int_stats}_{wfname}')
     fig.savefig(svfilePath, facecolor='auto', edgecolor='auto', bbox_inches='tight')
     fig.savefig(svfilePath+'.pdf', facecolor='auto', edgecolor='auto', orientation="portrait"
-        , bbox_inches='tight')
+        , bbox_inches='tight', pad_inches=1)
 
     plt.show(block=False)
     fig.clf()
@@ -102,7 +102,7 @@ def plot_wf_pumpage_ts1(df,int_stats):
     svfilePath = os.path.join(D_PROJECT,'plotWarehouse',f'{int_stats}_{wfname[0]}-{wfname[1]}')
     fig.savefig(svfilePath, facecolor='auto', edgecolor='auto', bbox_inches='tight')
     fig.savefig(svfilePath+'.pdf', facecolor='auto', edgecolor='auto', orientation="portrait"
-        , bbox_inches='tight')
+        , bbox_inches='tight', pad_inches=1)
 
     plt.show(block=False)
     fig.clf()
@@ -110,34 +110,67 @@ def plot_wf_pumpage_ts1(df,int_stats):
     return
 
 def plot_ra_pumpage(df):
-    wfname = df.Wellfield.values
-
     fig, axes = plt.subplots(2, 1, figsize=(13, 16))
-    sns.barplot(x='Wellfield', y='WF_Pumpage', hue='RA Period', data=df, ax=axes[0])
-    # sns.barplot(x='Wellfield', y='WF_Pumpage', hue='RA Period', data=tempDF)
 
+    sns.barplot(x='Wellfield', y='WF_Pumpage', hue='RA Period', data=df, ax=axes[0])
     axes[0].set_ylabel('Pumpage, mgd', fontsize=AX_LABEL_FONTSIZE)
-    axes[0].set_title(f'By RA-Period - {wfname}', fontsize=TITLE_FONTSIZE)
+    axes[0].set_title('Wellfield by RA-Period', fontsize=TITLE_FONTSIZE)
+
+    sns.barplot(x='Wellfield', y='PctOfCWUP', hue='RA Period', data=df, ax=axes[1])
+    axes[1].set_ylabel('Percent of CWUP', fontsize=AX_LABEL_FONTSIZE)
 
     plt.tight_layout()
 
-    svfilePath = os.path.join(D_PROJECT,'plotWarehouse',f'RA_{wfname[0]}-{wfname[1]}')
+    svfilePath = os.path.join(D_PROJECT,'plotWarehouse','RA_BarPlot')
     fig.savefig(svfilePath, facecolor='auto', edgecolor='auto', bbox_inches='tight')
     fig.savefig(svfilePath+'.pdf', facecolor='auto', edgecolor='auto', orientation="portrait"
-        , bbox_inches='tight')
+        , bbox_inches='tight', pad_inches=1)
 
     plt.show(block=False)
     fig.clf()
     plt.close()
     return
 
+def plot_ra_violin(df):
+    tempDF = df[df['RA Period']!='RA First SixYrs'][df['Wellfield']!='CWUP']
+    g = sns.catplot(tempDF, x='Wellfield', y='WF_Pumpage', hue='RA Period'
+        , kind='violin', split=True, palette='pastel', height=13, aspect=0.8125)
+    g.set_axis_labels('Wellfield', 'Pumpage, mgd', fontsize=AX_LABEL_FONTSIZE)
+    plt.legend(title="RA Period", loc='upper right')
+    g._legend.remove()
+
+    # # Create custom legend
+    # handles, labels = g.ax.get_legend_handles_labels()
+    # g.ax.legend(handles, ['RA Last SixYrs', 'RA Extended Period'], title='RA Period', loc='upper right')
+
+    plt.tight_layout()
+
+    svfilePath = os.path.join(D_PROJECT,'plotWarehouse',f'RA_2PeriodCompare')
+    plt.savefig(svfilePath, facecolor='auto', edgecolor='auto', bbox_inches='tight')
+    plt.savefig(svfilePath+'.pdf', facecolor='auto', edgecolor='auto', orientation="landscape"
+        , bbox_inches='tight', pad_inches=1)
+
+    plt.show(block=False)
+    plt.clf()
+    plt.close()
+    return
+
 if __name__ == '__main__':
+    from image2pdf import merge_pdf
+    # merge_pdf(D_PROJECT)
+
     sns.set_theme(style="darkgrid")
-    plt.rcParams.update({'font.size': 8, 'savefig.dpi': 300})
+    plt.rcParams.update({'font.size': 8, 'savefig.dpi': 300, 'savefig.orientation': 'portrait'
+        , 'savefig.bbox': 'standard'})
     conn = LoadData.get_DBconn()
     df = pd.read_sql('''
         --begin-sql
-        select A.Wellfield, CAST(A.Date as Date) [Date], A.WF_Pumpage, A.StdPumpage, PctOfCWUP, StdPctOfCWUP
+        select Wellfield, CAST([Date] as Date) [Date], WF_Pumpage, StdPumpage, PctOfCWUP, StdPctOfCWUP
+        , case when Date between '10/01/2007' and '09/30/2013' then 'RA First SixYrs'
+            else case when Date between '10/01/2013' and '09/30/2019' then 'RA Last SixYrs'
+                else case when Date between '10/01/2019' and '09/30/2023' then 'RA Extended Period'
+                    else NULL
+        end end end [RA Period]
         from (
             -- Monthly WF pumpage
             select A.Wellfield, A.Date, AVG(A.WF_Pumpage) WF_Pumpage, STDEV(A.WF_Pumpage) StdPumpage
@@ -185,31 +218,60 @@ if __name__ == '__main__':
 
     raDF = pd.read_sql('''
         --begin-sql
-        SELECT OROP_WFCode Wellfield,WYStart Date,AVG(WFPumpage) WF_Pumpage,STDEV(WFPumpage) AnnualSTD
+        SELECT Wellfield, CAST(WYStart as Date) [Date]
+        , AVG(WF_Pumpage) WF_Pumpage, STDEV(WF_Pumpage) AnnualSTD
+        , AVG(PctOfCWUP) PctOfCWUP, STDEV(PctOfCWUP) StdPctOfCWUP
         , case when WYStart between '10/01/2007' and '09/30/2013' then 'RA First SixYrs'
             else case when WYStart between '10/01/2013' and '09/30/2019' then 'RA Last SixYrs'
                 else case when WYStart between '10/01/2019' and '09/30/2023' then 'RA Extended Period'
                     else NULL
         end end end [RA Period]
         FROM (
-            -- Wellfield Pumpage
-            SELECT TSTAMP [Date],OROP_WFCode,SUM(DailyPumpage) WFPumpage,TS.dbo.WateryearStart([TSTAMP]) WYStart
-            FROM [dbo].[RA_DailyPumpage]
-            WHERE OROP_WFCode in ('CBR','CYC','CYB','MRB','EDW','STK')
-            GROUP BY TSTAMP,OROP_WFCode
-
-            --ORDER BY TSTAMP,OROP_WFCode
+            select A.Wellfield, TS.dbo.WateryearStart(A.Date) WYStart, A.WF_Pumpage, A.WF_Pumpage/B.WF_Pumpage*100. PctOfCWUP
+            from (
+                -- Daily WF pumpage
+                select OROP_WFCode Wellfield, TSTAMP Date, sum(DailyPumpage) WF_Pumpage
+                from [dbo].[RA_DailyPumpage]
+                where OROP_WFCode in ('CBR','CYC','CYB','MRB','EDW','STK')
+                group by OROP_WFCode, TSTAMP
+                union
+                -- Add CWUP
+                select 'CWUP' Wellfield, TSTAMP Date, sum(DailyPumpage) WF_Pumpage
+                from [dbo].[RA_DailyPumpage]
+                where OROP_WFCode not in ('BUD','SCH')
+                group by TSTAMP
+            ) A
+            left join (
+                select 'CWUP' Wellfield, TSTAMP Date, sum(DailyPumpage) WF_Pumpage
+                from [dbo].[RA_DailyPumpage]
+                where OROP_WFCode not in ('BUD','SCH')
+                group by TSTAMP
+            ) B on A.Date=B.Date
+            --order by wellfield,A.date
         ) A
-        --where OROP_WFCode='EDW',OROP_WFCode,
-        GROUP BY OROP_WFCode,WYStart
-        ORDER BY OROP_WFCode,WYStart
+        where Wellfield<>'CWUP'
+        GROUP BY Wellfield,WYStart
+        ORDER BY Wellfield,WYStart
     ''', conn)
+
+    saswlDF = pd.read_sql('''
+        SELECT MonthStart [Date],PointName, AVG(DailyWaterlevel) MonthlyWaterlevel, STDEV(DailyWaterlevel) StdWaterlevel
+        FROM (
+            SELECT [TSTAMP],PointName,[DailyWaterlevel],TS.dbo.MonthStart([TSTAMP]) MonthStart
+            FROM [dbo].[RA_SAS_DailyWL]
+        ) A
+        GROUP BY MonthStart,PointName
+        ORDER BY PointName,[Date]
+    ''', conn)
+
     conn.close()
 
-    # plot by RA period
-    plot_ra_pumpage(raDF)
-    svfilePath = os.path.join(D_PROJECT,'plotWarehouse','RA Period Pumpage.csv')
-    raDF.to_csv(svfilePath, index=False)
+    # plot a few SAS well to check ACF and PACF
+    tempDF = saswlDF.rename(columns={
+        'PointName':'Wellfield','MonthlyWaterlevel':'WF_Pumpage','StdWaterlevel':'StdPumpage'})
+    [plot_wf_pumpage_ts(tempDF[tempDF['Wellfield']==i],'Monthly Waterlevel')
+        for i in ['SERW-s','StPt-47s','EW-SM-15']
+    ]
 
     # plot monthly timeseries and ACF-PACF
     tempDF = df[['Wellfield','Date','WF_Pumpage','StdPumpage']]
@@ -236,10 +298,14 @@ if __name__ == '__main__':
     wyDF.to_csv(svfilePath, index=False)
 
     # plot by RA period
-    [plot_ra_pumpage(raDF[raDF['Wellfield']==i])
-        for i in ['CBR','CYC','CYB','MRB','EDW','STK']
-    ]
+    plot_ra_pumpage(raDF)
     svfilePath = os.path.join(D_PROJECT,'plotWarehouse','RA Period Pumpage.csv')
     raDF.to_csv(svfilePath, index=False)
+
+    tempDF = df[df['Wellfield']!='STK'][['Wellfield','Date','WF_Pumpage','RA Period']]
+    plot_ra_violin(tempDF)
+
+    # merge all pdf files
+    merge_pdf(D_PROJECT)
 
     exit(0)
